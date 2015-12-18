@@ -1,0 +1,9 @@
+[package]
+name = "ruplicity-fuse"
+version = "0.0.1"
+authors = ["mbrt"]
+description = "Mount duplicity backups with userspace filesystem"
+repository = "https://github.com/mbrt/ruplicity-fuse"
+readme = "README.md"
+license = "MIT"
+keywords = ["duplicity", "backup", "fuse"]
