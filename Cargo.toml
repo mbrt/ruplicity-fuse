@@ -7,3 +7,6 @@ repository = "https://github.com/mbrt/ruplicity-fuse"
 readme = "README.md"
 license = "MIT"
 keywords = ["duplicity", "backup", "fuse"]
+
+[dependencies]
+fuse = "0.2"
