@@ -9,4 +9,6 @@ license = "MIT"
 keywords = ["duplicity", "backup", "fuse"]
 
 [dependencies]
+ruplicity = "0.2"
 fuse = "0.2"
+chan-signal = "0.1"
