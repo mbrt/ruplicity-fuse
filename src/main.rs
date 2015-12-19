@@ -18,9 +18,7 @@ fn main() {
     };
 
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);
-    let _mount = unsafe {
-        fuse::spawn_mount(RuplicityFs, &mountpoint, &[])
-    };
+    let _mount = unsafe { fuse::spawn_mount(RuplicityFs, &mountpoint, &[]) };
 
     // Blocks until this process is sent an INT or TERM signal.
     // Since the channel is never closed, we can unwrap the received value.
