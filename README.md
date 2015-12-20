@@ -1,5 +1,5 @@
 # ruplicity-fuse
-[![Build Status](https://travis-ci.org/mbrt/ruplicity-fuse.svg?branch=travis)](https://travis-ci.org/mbrt/ruplicity-fuse)
+[![Build Status](https://travis-ci.org/mbrt/ruplicity-fuse.svg?branch=master)](https://travis-ci.org/mbrt/ruplicity-fuse)
 
 Mount duplicity backups with userspace filesystem
 
