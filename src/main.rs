@@ -1,3 +1,7 @@
+#![cfg_attr(feature = "nightly", allow(unstable_features))]
+#![cfg_attr(feature = "lints", feature(plugin))]
+#![cfg_attr(feature = "lints", plugin(clippy))]
+
 extern crate chan_signal;
 extern crate fuse;
 extern crate libc;
