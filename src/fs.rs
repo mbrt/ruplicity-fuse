@@ -41,17 +41,15 @@ impl RuplicityFs {
             reply.add(1, 0, FileType::Directory, &Path::new("."));
             reply.add(1, 1, FileType::Directory, &Path::new(".."));
             offset += 2;
-        }
-        assert!(offset > 1);
-        debug!("Reading snapshots for offset {}", offset);
-        let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 2);
-        for snapshot in snapshots {
-            let time = time::at(snapshot.time());
-            let path = try_or_log!(time::strftime("%Y-%m-%d_%H:%M:%S", &time));
-            if reply.add(1, offset, FileType::Directory, &Path::new(&path)) {
-                break;
+            let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 2);
+            for snapshot in snapshots {
+                let time = time::at(snapshot.time());
+                let path = try_or_log!(time::strftime("%Y-%m-%d_%H:%M:%S", &time));
+                if reply.add(1, offset, FileType::Directory, &Path::new(&path)) {
+                    break;
+                }
+                offset += 1;
             }
-            offset += 1;
         }
         reply.ok();
     }
