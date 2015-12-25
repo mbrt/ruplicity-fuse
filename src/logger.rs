@@ -1,8 +1,18 @@
+#![macro_use]
+
+use std::io::{self, Write};
 use log;
 
-pub fn init() -> Result<(), log::SetLoggerError> {
+macro_rules! fatal {
+    ($($arg:tt)+) => {
+        error!($($arg)+);
+        std::process::exit(1);
+    }
+}
+
+pub fn init(level: log::LogLevelFilter) -> Result<(), log::SetLoggerError> {
     log::set_logger(|max_level| {
-        max_level.set(log::LogLevelFilter::Debug);
+        max_level.set(level);
         Box::new(ConsoleLogger)
     })
 }
@@ -10,13 +20,21 @@ pub fn init() -> Result<(), log::SetLoggerError> {
 struct ConsoleLogger;
 
 impl log::Log for ConsoleLogger {
-    fn enabled(&self, metadata: &log::LogMetadata) -> bool {
-        metadata.level() <= log::LogLevel::Debug
+    fn enabled(&self, _metadata: &log::LogMetadata) -> bool {
+        true
     }
 
     fn log(&self, record: &log::LogRecord) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
+        match record.level() {
+            log::LogLevel::Error => {
+                writeln!(&mut io::stderr(), "{} - {}", record.level(), record.args()).unwrap();
+            }
+            log::LogLevel::Warn => {
+                writeln!(&mut io::stderr(), "{} - {}", record.level(), record.args()).unwrap();
+            }
+            _ => {
+                writeln!(&mut io::stderr(), "{} - {}", record.level(), record.args()).unwrap();
+            }
         }
     }
 }

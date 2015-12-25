@@ -1,9 +1,23 @@
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, Request};
 use libc::{ENOENT, ENOSYS};
 use time;
+use ruplicity::Backup;
+use ruplicity::backend::local::LocalBackend;
+
 use std::path::Path;
 
-pub struct RuplicityFs;
+
+pub struct RuplicityFs {
+    backup: Backup<LocalBackend>,
+}
+
+impl RuplicityFs {
+    pub fn new(backup: Backup<LocalBackend>) -> Self {
+        RuplicityFs {
+            backup: backup,
+        }
+    }
+}
 
 impl Filesystem for RuplicityFs {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
