@@ -10,6 +10,7 @@ extern crate log;
 extern crate ruplicity;
 extern crate time;
 
+mod macros;
 mod fs;
 mod logger;
 
