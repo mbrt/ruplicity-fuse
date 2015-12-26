@@ -10,23 +10,29 @@ use std::path::Path;
 
 pub struct RuplicityFs<B> {
     backup: Backup<B>,
-    snapshots_paths: HashMap<String, usize>,
+    snapshots: SnapshotsInos,
+    last_ino: u64,
 }
 
+struct SnapshotsInos {
+    paths: HashMap<String, usize>,
+}
+
+
 impl<B: Backend> RuplicityFs<B> {
+    /// Creates a new Filesystem instance for a duplicity backup.
     pub fn new(backup: Backup<B>) -> io::Result<Self> {
-        let mut spaths = HashMap::new();
-        for (count, snapshot) in try!(backup.snapshots()).enumerate() {
-            let path = time_to_path(snapshot.time());
-            spaths.insert(path, count);
-        }
+        let spaths = try!(SnapshotsInos::new(&backup));
+        let last_ino = spaths.last_ino();
 
         Ok(RuplicityFs {
             backup: backup,
-            snapshots_paths: spaths,
+            snapshots: spaths,
+            last_ino: last_ino,
         })
     }
 
+    /// getattr for the root directory.
     fn getattr_root(&mut self, reply: ReplyAttr) {
         let ts = time::get_time();
         let attr = FileAttr {
@@ -48,8 +54,9 @@ impl<B: Backend> RuplicityFs<B> {
         reply.attr(&ts, &attr);
     }
 
+    /// getattr for a snapshot directory.
     fn getattr_snapshot(&mut self, ino: u64, reply: ReplyAttr) {
-        match try_or_log!(self.backup.snapshots()).nth(ino as usize - 2) {
+        match try_or_log!(self.backup.snapshots()).nth(self.snapshots.sid_from_ino(ino)) {
             Some(snapshot) => {
                 let ts = snapshot.time();
                 let attr = self.attr_snapshot(&snapshot, ino);
@@ -62,6 +69,7 @@ impl<B: Backend> RuplicityFs<B> {
         }
     }
 
+    /// readdir for the root directory.
     fn readdir_root(&mut self, mut offset: u64, mut reply: ReplyDirectory) {
         // offset is the last returned offset
         if offset == 0 {
@@ -75,7 +83,7 @@ impl<B: Backend> RuplicityFs<B> {
         let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 1);
         for snapshot in snapshots {
             offset += 1;
-            debug!("Add snapshot for offset {}", offset);
+            trace!("Add snapshot for offset {}", offset);
             let path = time_to_path(snapshot.time());
             if reply.add(offset, offset, FileType::Directory, &Path::new(&path)) {
                 // the buffer is full, need to return
@@ -85,8 +93,14 @@ impl<B: Backend> RuplicityFs<B> {
         reply.ok();
     }
 
+    /// readdir for snapshot contents.
+    fn readdir_files(&mut self, ino: u64, offset: u64, reply: ReplyDirectory) {
+        reply.error(ENOENT);
+    }
+
+    /// lookup for snapshots.
     fn lookup_snapshot(&mut self, name: &Path, reply: ReplyEntry) {
-        let sid = match self.snapshots_paths.get(name.to_str().unwrap()) {
+        let sid = match self.snapshots.sid_from_path(name) {
             Some(id) => *id,
             None => {
                 reply.error(ENOENT);
@@ -96,7 +110,7 @@ impl<B: Backend> RuplicityFs<B> {
         match try_or_log!(self.backup.snapshots()).nth(sid) {
             Some(snapshot) => {
                 let ts = snapshot.time();
-                let attr = self.attr_snapshot(&snapshot, sid as u64 + 2);
+                let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
                 reply.entry(&ts, &attr, 0);
             }
             None => {
@@ -106,10 +120,7 @@ impl<B: Backend> RuplicityFs<B> {
         };
     }
 
-    fn is_snapshot(&self, ino: u64) -> bool {
-        ino >= 2 && ino < self.snapshots_paths.len() as u64 + 2
-    }
-
+    /// Returns attributes for a snapshot.
     fn attr_snapshot(&self, snapshot: &Snapshot, ino: u64) -> FileAttr {
         let ts = snapshot.time();
         FileAttr {
@@ -135,7 +146,7 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         if ino == 1 {
             self.getattr_root(reply);
-        } else if self.is_snapshot(ino) {
+        } else if self.snapshots.is_snapshot(ino) {
             self.getattr_snapshot(ino, reply);
         } else {
             reply.error(ENOSYS);
@@ -145,6 +156,8 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: u64, reply: ReplyDirectory) {
         if ino == 1 {
             self.readdir_root(offset, reply);
+        } else if self.snapshots.is_snapshot(ino) {
+            self.readdir_files(ino, offset, reply);
         } else {
             reply.error(ENOENT);
         }
@@ -156,6 +169,41 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         } else {
             reply.error(ENOENT);
         }
+    }
+}
+
+
+impl SnapshotsInos {
+    /// Creates a new Filesystem instance for a duplicity backup.
+    pub fn new<B: Backend>(backup: &Backup<B>) -> io::Result<Self> {
+        let mut spaths = HashMap::new();
+        for (count, snapshot) in try!(backup.snapshots()).enumerate() {
+            let path = time_to_path(snapshot.time());
+            spaths.insert(path, count);
+        }
+        Ok(SnapshotsInos { paths: spaths })
+    }
+
+    fn sid_from_path(&self, name: &Path) -> Option<&usize> {
+        self.paths.get(name.to_str().unwrap())
+    }
+
+    fn sid_from_ino(&self, ino: u64) -> usize {
+        ino as usize + 2
+    }
+
+    fn ino_from_sid(&self, sid: usize) -> u64 {
+        assert!(sid >= 2);
+        sid as u64 - 2
+    }
+
+    fn last_ino(&self) -> u64 {
+        self.ino_from_sid(self.paths.len())
+    }
+
+    /// Returns whether an inode is a snapshot.
+    fn is_snapshot(&self, ino: u64) -> bool {
+        ino >= 2 && ino < self.ino_from_sid(self.paths.len())
     }
 }
 
