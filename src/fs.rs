@@ -1,33 +1,30 @@
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyEntry, ReplyDirectory, Request};
 use libc::{ENOENT, ENOSYS};
-use time;
+use time::{self, Timespec};
 use ruplicity::{Backend, Backup};
 
 use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 
 
 pub struct RuplicityFs<B> {
     backup: Backup<B>,
-    snapshots_ino: (u64, u64),
     snapshots_paths: HashMap<String, usize>,
 }
 
 impl<B: Backend> RuplicityFs<B> {
-    pub fn new(backup: Backup<B>) -> Self {
+    pub fn new(backup: Backup<B>) -> io::Result<Self> {
         let mut spaths = HashMap::new();
-        for (count, snapshot) in backup.snapshots().unwrap().enumerate() {
-            let time = time::at(snapshot.time());
-            let path = time::strftime("%Y-%m-%d_%H:%M:%S", &time).unwrap();
+        for (count, snapshot) in try!(backup.snapshots()).enumerate() {
+            let path = time_to_path(snapshot.time());
             spaths.insert(path, count);
         }
-        let num_snapshots = spaths.len();
 
-        RuplicityFs {
+        Ok(RuplicityFs {
             backup: backup,
-            snapshots_ino: (2, num_snapshots as u64 + 2),
             snapshots_paths: spaths,
-        }
+        })
     }
 
     fn getattr_root(&mut self, reply: ReplyAttr) {
@@ -87,8 +84,7 @@ impl<B: Backend> RuplicityFs<B> {
             offset += 2;
             let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 2);
             for snapshot in snapshots {
-                let time = time::at(snapshot.time());
-                let path = try_or_log!(time::strftime("%Y-%m-%d_%H:%M:%S", &time));
+                let path = time_to_path(snapshot.time());
                 if reply.add(offset, offset, FileType::Directory, &Path::new(&path)) {
                     break;
                 }
@@ -135,7 +131,7 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     fn is_snapshot(&self, ino: u64) -> bool {
-        self.snapshots_ino.0 <= ino && ino < self.snapshots_ino.1
+        ino >= 2 && ino < self.snapshots_paths.len() as u64 + 2
     }
 }
 
@@ -165,4 +161,10 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
             reply.error(ENOENT);
         }
     }
+}
+
+
+fn time_to_path(time: Timespec) -> String {
+    let time = time::at(time);
+    time::strftime("%Y-%m-%d_%H-%M-%S", &time).unwrap()
 }

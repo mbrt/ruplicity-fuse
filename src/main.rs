@@ -40,7 +40,7 @@ fn main() {
     };
 
     let backup = ordie(backup_from_path(backupp));
-    let fs = RuplicityFs::new(backup);
+    let fs = ordie(RuplicityFs::new(backup));
 
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);
     let _mount = unsafe { fuse::spawn_mount(fs, &mountp, &[]) };
