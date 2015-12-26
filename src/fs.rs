@@ -16,12 +16,10 @@ pub struct RuplicityFs<B> {
 impl<B: Backend> RuplicityFs<B> {
     pub fn new(backup: Backup<B>) -> Self {
         let mut spaths = HashMap::new();
-        let mut count = 0;
-        for snapshot in backup.snapshots().unwrap() {
+        for (count, snapshot) in backup.snapshots().unwrap().enumerate() {
             let time = time::at(snapshot.time());
             let path = time::strftime("%Y-%m-%d_%H:%M:%S", &time).unwrap();
             spaths.insert(path, count);
-            count += 1;
         }
         let num_snapshots = spaths.len();
 
