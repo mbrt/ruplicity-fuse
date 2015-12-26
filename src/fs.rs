@@ -1,7 +1,7 @@
-use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyEntry, ReplyDirectory, Request};
+use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::{ENOENT, ENOSYS};
 use time::{self, Timespec};
-use ruplicity::{Backend, Backup};
+use ruplicity::{Backend, Backup, Snapshot};
 
 use std::collections::HashMap;
 use std::io;
@@ -38,7 +38,7 @@ impl<B: Backend> RuplicityFs<B> {
             ctime: ts,
             crtime: ts,
             kind: FileType::Directory,
-            perm: 0o755,
+            perm: 0o555,
             nlink: 0,
             uid: 0,
             gid: 0,
@@ -52,22 +52,7 @@ impl<B: Backend> RuplicityFs<B> {
         match try_or_log!(self.backup.snapshots()).nth(ino as usize - 2) {
             Some(snapshot) => {
                 let ts = snapshot.time();
-                let attr = FileAttr {
-                    ino: ino,
-                    size: 0,
-                    blocks: 0,
-                    atime: ts,
-                    mtime: ts,
-                    ctime: ts,
-                    crtime: ts,
-                    kind: FileType::Directory,
-                    perm: 0o755,
-                    nlink: 0,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    flags: 0,
-                };
+                let attr = self.attr_snapshot(&snapshot, ino);
                 reply.attr(&ts, &attr);
             }
             None => {
@@ -78,17 +63,23 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     fn readdir_root(&mut self, mut offset: u64, mut reply: ReplyDirectory) {
+        // offset is the last returned offset
         if offset == 0 {
+            // assume first two replies does fit in the buffer
             reply.add(1, 0, FileType::Directory, &Path::new("."));
             reply.add(1, 1, FileType::Directory, &Path::new(".."));
-            offset += 2;
-            let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 2);
-            for snapshot in snapshots {
-                let path = time_to_path(snapshot.time());
-                if reply.add(offset, offset, FileType::Directory, &Path::new(&path)) {
-                    break;
-                }
-                offset += 1;
+            offset += 1;
+        }
+
+        debug!("Skip first {} snapshots", offset - 1);
+        let snapshots = try_or_log!(self.backup.snapshots()).skip(offset as usize - 1);
+        for snapshot in snapshots {
+            offset += 1;
+            debug!("Add snapshot for offset {}", offset);
+            let path = time_to_path(snapshot.time());
+            if reply.add(offset, offset, FileType::Directory, &Path::new(&path)) {
+                // the buffer is full, need to return
+                break;
             }
         }
         reply.ok();
@@ -105,22 +96,7 @@ impl<B: Backend> RuplicityFs<B> {
         match try_or_log!(self.backup.snapshots()).nth(sid) {
             Some(snapshot) => {
                 let ts = snapshot.time();
-                let attr = FileAttr {
-                    ino: sid as u64 + 2,
-                    size: 0,
-                    blocks: 0,
-                    atime: ts,
-                    mtime: ts,
-                    ctime: ts,
-                    crtime: ts,
-                    kind: FileType::Directory,
-                    perm: 0o755,
-                    nlink: 0,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    flags: 0,
-                };
+                let attr = self.attr_snapshot(&snapshot, sid as u64 + 2);
                 reply.entry(&ts, &attr, 0);
             }
             None => {
@@ -132,6 +108,26 @@ impl<B: Backend> RuplicityFs<B> {
 
     fn is_snapshot(&self, ino: u64) -> bool {
         ino >= 2 && ino < self.snapshots_paths.len() as u64 + 2
+    }
+
+    fn attr_snapshot(&self, snapshot: &Snapshot, ino: u64) -> FileAttr {
+        let ts = snapshot.time();
+        FileAttr {
+            ino: ino,
+            size: 0,
+            blocks: 0,
+            atime: ts,
+            mtime: ts,
+            ctime: ts,
+            crtime: ts,
+            kind: FileType::Directory,
+            perm: 0o555,
+            nlink: 0,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+            flags: 0,
+        }
     }
 }
 
