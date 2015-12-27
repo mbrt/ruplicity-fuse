@@ -2,6 +2,7 @@ use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry
 use libc::{ENOENT, ENOSYS};
 use time::{self, Timespec};
 use ruplicity::{Backend, Backup, Snapshot};
+use ruplicity::signatures::EntryType;
 
 use std::collections::HashMap;
 use std::io;
@@ -94,8 +95,31 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     /// readdir for snapshot contents.
-    fn readdir_files(&mut self, ino: u64, offset: u64, reply: ReplyDirectory) {
-        reply.error(ENOENT);
+    fn readdir_files(&mut self, ino: u64, offset: u64, mut reply: ReplyDirectory) {
+        let snapshot = match try_or_log!(self.snapshot_from_sid(self.snapshots
+                                                                    .sid_from_ino(ino))) {
+            Some(snapshot) => snapshot,
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+        if offset == 0 {
+            let entries = try_or_log!(snapshot.entries());
+            for (offset, entry) in entries.as_signature().enumerate() {
+                let offset = offset as u64;
+                let ftype = match entry.entry_type() {
+                    EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => {
+                        FileType::RegularFile
+                    }
+                    EntryType::Dir => FileType::Directory,
+                    EntryType::SymLink => FileType::Symlink,
+                    EntryType::Fifo => FileType::NamedPipe,
+                };
+                reply.add(self.last_ino + offset, offset, ftype, entry.path());
+            }
+        }
+        reply.ok();
     }
 
     /// lookup for snapshots.
@@ -115,7 +139,6 @@ impl<B: Backend> RuplicityFs<B> {
             }
             None => {
                 reply.error(ENOENT);
-                return;
             }
         };
     }
