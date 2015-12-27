@@ -56,7 +56,7 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// getattr for a snapshot directory.
     fn getattr_snapshot(&mut self, ino: u64, reply: ReplyAttr) {
-        match try_or_log!(self.backup.snapshots()).nth(self.snapshots.sid_from_ino(ino)) {
+        match try_or_log!(self.snapshot_from_sid(self.snapshots.sid_from_ino(ino))) {
             Some(snapshot) => {
                 let ts = snapshot.time();
                 let attr = self.attr_snapshot(&snapshot, ino);
@@ -107,7 +107,7 @@ impl<B: Backend> RuplicityFs<B> {
                 return;
             }
         };
-        match try_or_log!(self.backup.snapshots()).nth(sid) {
+        match try_or_log!(self.snapshot_from_sid(sid)) {
             Some(snapshot) => {
                 let ts = snapshot.time();
                 let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
@@ -139,6 +139,10 @@ impl<B: Backend> RuplicityFs<B> {
             rdev: 0,
             flags: 0,
         }
+    }
+
+    fn snapshot_from_sid(&self, sid: usize) -> io::Result<Option<Snapshot>> {
+        self.backup.snapshots().map(|mut s| s.nth(sid))
     }
 }
 
@@ -189,12 +193,12 @@ impl SnapshotsInos {
     }
 
     fn sid_from_ino(&self, ino: u64) -> usize {
-        ino as usize + 2
+        assert!(ino >= 2);
+        ino as usize - 2
     }
 
     fn ino_from_sid(&self, sid: usize) -> u64 {
-        assert!(sid >= 2);
-        sid as u64 - 2
+        sid as u64 + 2
     }
 
     fn last_ino(&self) -> u64 {
