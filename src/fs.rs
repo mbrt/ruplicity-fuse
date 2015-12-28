@@ -2,7 +2,7 @@ use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry
 use libc::{ENOENT, ENOSYS};
 use time::{self, Timespec};
 use ruplicity::{Backend, Backup, Snapshot};
-use ruplicity::signatures::EntryType;
+use ruplicity::signatures::{EntryType, SnapshotEntries};
 
 use std::collections::HashMap;
 use std::io;
@@ -12,11 +12,25 @@ use std::path::Path;
 pub struct RuplicityFs<B> {
     backup: Backup<B>,
     snapshots: SnapshotsInos,
+    trees: Vec<Option<SnapshotTree>>,
     last_ino: u64,
 }
 
 struct SnapshotsInos {
     paths: HashMap<String, usize>,
+}
+
+struct SnapshotTree {
+    root: TreeNode,
+}
+
+struct TreeNode {
+    /// Range of paths in the snapshot that are managed by this node
+    indexes: (usize, usize),
+    /// The inode of the first path
+    first_ino: u64,
+    /// Children nodes. Each children is a sub-path of the current path
+    children: Vec<TreeNode>,
 }
 
 
@@ -25,11 +39,20 @@ impl<B: Backend> RuplicityFs<B> {
     pub fn new(backup: Backup<B>) -> io::Result<Self> {
         let spaths = try!(SnapshotsInos::new(&backup));
         let last_ino = spaths.last_ino();
+        let trees = {
+            // v![] macro does not work because SnapshotTree is not Clone
+            let mut v = Vec::new();
+            for _ in 0..spaths.len() {
+                v.push(None);
+            }
+            v
+        };
 
         Ok(RuplicityFs {
             backup: backup,
             snapshots: spaths,
             last_ino: last_ino,
+            trees: trees,
         })
     }
 
@@ -223,26 +246,48 @@ impl SnapshotsInos {
         Ok(SnapshotsInos { paths: spaths })
     }
 
-    fn sid_from_path(&self, name: &Path) -> Option<&usize> {
+    pub fn len(&self) -> usize {
+        self.paths.len()
+    }
+
+    pub fn sid_from_path(&self, name: &Path) -> Option<&usize> {
         self.paths.get(name.to_str().unwrap())
     }
 
-    fn sid_from_ino(&self, ino: u64) -> usize {
+    pub fn sid_from_ino(&self, ino: u64) -> usize {
         assert!(ino >= 2);
         ino as usize - 2
     }
 
-    fn ino_from_sid(&self, sid: usize) -> u64 {
+    pub fn ino_from_sid(&self, sid: usize) -> u64 {
         sid as u64 + 2
     }
 
-    fn last_ino(&self) -> u64 {
+    pub fn last_ino(&self) -> u64 {
         self.ino_from_sid(self.paths.len())
     }
 
     /// Returns whether an inode is a snapshot.
-    fn is_snapshot(&self, ino: u64) -> bool {
+    pub fn is_snapshot(&self, ino: u64) -> bool {
         ino >= 2 && ino < self.ino_from_sid(self.paths.len())
+    }
+}
+
+
+impl SnapshotTree {
+    pub fn new(snapshot: &Snapshot, first_ino: u64) -> Self {
+        unimplemented!()
+    }
+}
+
+impl TreeNode {
+    pub fn new(depth: usize, first_ino: u64, entries: SnapshotEntries) {
+        unimplemented!()
+        //let children = Vec::new();
+        //TreeNode {
+            //first_ino: first_ino,
+            //children: children,
+        //}
     }
 }
 
