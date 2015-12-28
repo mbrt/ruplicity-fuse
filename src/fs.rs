@@ -100,6 +100,7 @@ impl<B: Backend> RuplicityFs<B> {
                                                                     .sid_from_ino(ino))) {
             Some(snapshot) => snapshot,
             None => {
+                error!("No snapshot found");
                 reply.error(ENOENT);
                 return;
             }
@@ -116,7 +117,17 @@ impl<B: Backend> RuplicityFs<B> {
                     EntryType::SymLink => FileType::Symlink,
                     EntryType::Fifo => FileType::NamedPipe,
                 };
-                reply.add(self.last_ino + offset, offset, ftype, entry.path());
+                let path = match entry.path().components().next() {
+                    Some(p) => p,
+                    None => {
+                        continue;
+                    }
+                };
+                trace!("Add ino {} for path {:?} with ftype {:?}",
+                       self.last_ino + offset,
+                       path,
+                       ftype);
+                reply.add(self.last_ino + offset, offset, ftype, path);
             }
         }
         reply.ok();
@@ -186,6 +197,7 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         } else if self.snapshots.is_snapshot(ino) {
             self.readdir_files(ino, offset, reply);
         } else {
+            error!("Unknown ino {} for readdir", ino);
             reply.error(ENOENT);
         }
     }

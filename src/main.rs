@@ -34,7 +34,7 @@ fn main() {
             process::exit(1);
         }
     };
-    if let Err(e) = logger::init(log::LogLevelFilter::Debug) {
+    if let Err(e) = logger::init(log::LogLevelFilter::Trace) {
         println!("Logger initialization error {}", e);
         process::exit(1);
     };
