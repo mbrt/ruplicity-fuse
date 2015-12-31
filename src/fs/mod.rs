@@ -1,3 +1,5 @@
+mod tree;
+
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 use libc::{ENOENT, ENOSYS};
 use time::{self, Timespec};
@@ -7,6 +9,8 @@ use ruplicity::signatures::{EntryType, SnapshotEntries};
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
+
+use self::tree::SnapshotTree;
 
 
 pub struct RuplicityFs<B> {
@@ -18,19 +22,6 @@ pub struct RuplicityFs<B> {
 
 struct SnapshotsInos {
     paths: HashMap<String, usize>,
-}
-
-struct SnapshotTree {
-    root: TreeNode,
-}
-
-struct TreeNode {
-    /// Range of paths in the snapshot that are managed by this node
-    indexes: (usize, usize),
-    /// The inode of the first path
-    first_ino: u64,
-    /// Children nodes. Each children is a sub-path of the current path
-    children: Vec<TreeNode>,
 }
 
 
@@ -270,24 +261,6 @@ impl SnapshotsInos {
     /// Returns whether an inode is a snapshot.
     pub fn is_snapshot(&self, ino: u64) -> bool {
         ino >= 2 && ino < self.ino_from_sid(self.paths.len())
-    }
-}
-
-
-impl SnapshotTree {
-    pub fn new(snapshot: &Snapshot, first_ino: u64) -> Self {
-        unimplemented!()
-    }
-}
-
-impl TreeNode {
-    pub fn new(depth: usize, first_ino: u64, entries: SnapshotEntries) {
-        unimplemented!()
-        //let children = Vec::new();
-        //TreeNode {
-            //first_ino: first_ino,
-            //children: children,
-        //}
     }
 }
 
