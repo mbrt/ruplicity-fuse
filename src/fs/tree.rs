@@ -4,11 +4,14 @@ use std::iter::Peekable;
 use ruplicity::Snapshot;
 use ruplicity::signatures::SnapshotEntries;
 
+
+#[derive(Debug)]
 pub struct SnapshotTree {
     /// paths in the root backup.
     children: Vec<TreeNode>,
 }
 
+#[derive(Debug)]
 struct TreeNode {
     /// The index of the entry in the `SnapshotEntries` iterator.
     index: usize,
@@ -25,13 +28,11 @@ impl SnapshotTree {
     pub fn new(snapshot: &Snapshot, first_ino: u64) -> io::Result<Self> {
         let entries = try!(snapshot.entries());
         let mut entries = entries.as_signature().peekable();
-        // skip the first entry, that is the root
-        if entries.next().is_some() {
-            Ok(SnapshotTree { children: TreeNode::new_children(0, 0, first_ino, &mut entries) })
-        } else {
-            // empty children
-            Ok(SnapshotTree { children: Vec::new() })
-        }
+        let children = match TreeNode::new(0, 0, first_ino, &mut entries) {
+            Some(node) => node.children,
+            None => Vec::new(),
+        };
+        Ok(SnapshotTree { children: children })
     }
 
     pub fn inodes(&self) -> Option<(u64, u64)> {
@@ -50,7 +51,7 @@ impl TreeNode {
                entries: &mut Peekable<SnapshotEntries>)
                -> Option<Self> {
         // need to check if there are more entries
-        entries.next().map(|entry| {
+        entries.next().map(|_| {
             // in this case the 'depth' component of the current path is the path handled by this
             // node
             TreeNode {
