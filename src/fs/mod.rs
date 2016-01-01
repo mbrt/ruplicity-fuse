@@ -31,7 +31,7 @@ impl<B: Backend> RuplicityFs<B> {
         let spaths = try!(SnapshotsInos::new(&backup));
         let last_ino = spaths.last_ino();
         let trees = {
-            // v![] macro does not work because SnapshotTree is not Clone
+            // vec![] macro does not work because SnapshotTree is not Clone
             let mut v = Vec::new();
             for _ in 0..spaths.len() {
                 v.push(None);
@@ -110,8 +110,7 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// readdir for snapshot contents.
     fn readdir_files(&mut self, ino: u64, offset: u64, mut reply: ReplyDirectory) {
-        let snapshot = match try_or_log!(self.snapshot_from_sid(self.snapshots
-                                                                    .sid_from_ino(ino))) {
+        let snapshot = match try_or_log!(self.snapshot_from_ino(ino)) {
             Some(snapshot) => snapshot,
             None => {
                 error!("No snapshot found");
@@ -120,10 +119,11 @@ impl<B: Backend> RuplicityFs<B> {
             }
         };
         if offset == 0 {
+            let tree = try_or_log!(SnapshotTree::new(&snapshot, self.last_ino));
             let entries = try_or_log!(snapshot.entries());
-            for (offset, entry) in entries.as_signature().enumerate() {
+            for (offset, entry) in tree.children(entries.as_signature()).enumerate() {
                 let offset = offset as u64;
-                let ftype = match entry.entry_type() {
+                let ftype = match entry.as_signature().entry_type() {
                     EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => {
                         FileType::RegularFile
                     }
@@ -131,17 +131,9 @@ impl<B: Backend> RuplicityFs<B> {
                     EntryType::SymLink => FileType::Symlink,
                     EntryType::Fifo => FileType::NamedPipe,
                 };
-                let path = match entry.path().components().next() {
-                    Some(p) => p,
-                    None => {
-                        continue;
-                    }
-                };
-                trace!("Add ino {} for path {:?} with ftype {:?}",
-                       self.last_ino + offset,
-                       path,
-                       ftype);
-                reply.add(self.last_ino + offset, offset, ftype, path);
+                let path = unwrap_opt_or_continue!(entry.path());
+                trace!("Add ino {} for path {:?} with ftype {:?}", entry.ino(), path, ftype);
+                reply.add(entry.ino(), offset, ftype, path);
             }
         }
         reply.ok();
@@ -191,6 +183,10 @@ impl<B: Backend> RuplicityFs<B> {
 
     fn snapshot_from_sid(&self, sid: usize) -> io::Result<Option<Snapshot>> {
         self.backup.snapshots().map(|mut s| s.nth(sid))
+    }
+    
+    fn snapshot_from_ino(&self, ino: u64) -> io::Result<Option<Snapshot>> {
+        self.snapshot_from_sid(self.snapshots.sid_from_ino(ino))
     }
 }
 

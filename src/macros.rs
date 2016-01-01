@@ -11,3 +11,14 @@ macro_rules! try_or_log(
         }
     )
 );
+
+/// Helper macro for unwrapping an Option if possible, continuing the loop
+/// if the value is None.
+macro_rules! unwrap_opt_or_continue(
+    ($e:expr) => (
+        match $e {
+            Some(v) => v,
+            _ => { continue; }
+        }
+    )
+);

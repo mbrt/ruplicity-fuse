@@ -1,8 +1,10 @@
 use std::io;
 use std::iter::Peekable;
+use std::path::{Path, Component};
+use std::slice;
 
 use ruplicity::Snapshot;
-use ruplicity::signatures::SnapshotEntries;
+use ruplicity::signatures::{Entry as SigEntry, SnapshotEntries};
 
 
 #[derive(Debug)]
@@ -10,6 +12,20 @@ pub struct SnapshotTree {
     /// paths in the root backup.
     children: Vec<TreeNode>,
 }
+
+pub struct ChildrenIter<'a, 'b> {
+    tree_it: slice::Iter<'a, TreeNode>,
+    entry_it: SnapshotEntries<'b>,
+    curr_index: usize,
+    path_depth: usize,
+}
+
+pub struct PathEntry<'a, 'b> {
+    node: &'a TreeNode,
+    entry: SigEntry<'b>,
+    depth: usize,
+}
+
 
 #[derive(Debug)]
 struct TreeNode {
@@ -39,6 +55,17 @@ impl SnapshotTree {
         match (self.children.first(), self.children.last()) {
             (Some(first), Some(last)) => Some((first.inodes().0, last.inodes().1)),
             _ => None,
+        }
+    }
+
+    pub fn children<'a, 'b>(&'a self, mut entries: SnapshotEntries<'b>) -> ChildrenIter<'a, 'b> {
+        // skip the root
+        entries.next().unwrap();
+        ChildrenIter {
+            tree_it: self.children.iter(),
+            entry_it: entries,
+            curr_index: 0,
+            path_depth: 0,
         }
     }
 }
@@ -113,5 +140,40 @@ impl TreeNode {
             None => self.ino,
         };
         (self.ino, last)
+    }
+}
+
+
+impl<'a, 'b> Iterator for ChildrenIter<'a, 'b> {
+    type Item = PathEntry<'a, 'b>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.tree_it.next().map(|child| {
+            let skip = child.index - self.curr_index - 1;
+            self.curr_index += skip + 1;
+            PathEntry {
+                node: &child,
+                entry: self.entry_it.nth(skip).unwrap(),
+                depth: self.path_depth,
+            }
+        })
+    }
+}
+
+
+impl<'a, 'b> PathEntry<'a, 'b> {
+    pub fn as_signature(&self) -> &SigEntry<'b> {
+        &self.entry
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        match self.entry.path().components().nth(self.depth).unwrap() {
+            Component::Normal(p) => Some(p.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub fn ino(&self) -> u64 {
+        self.node.ino
     }
 }
