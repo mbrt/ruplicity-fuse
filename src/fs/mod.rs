@@ -223,6 +223,11 @@ impl SnapshotsInos {
         self.paths.len()
     }
 
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+
     pub fn sid_from_path(&self, name: &Path) -> Option<&usize> {
         self.paths.get(name.to_str().unwrap())
     }
