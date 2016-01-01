@@ -4,7 +4,7 @@ use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry
 use libc::{ENOENT, ENOSYS};
 use time::{self, Timespec};
 use ruplicity::{Backend, Backup, Snapshot};
-use ruplicity::signatures::{EntryType, SnapshotEntries};
+use ruplicity::signatures::EntryType;
 
 use std::collections::HashMap;
 use std::io;
@@ -71,17 +71,10 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// getattr for a snapshot directory.
     fn getattr_snapshot(&mut self, ino: u64, reply: ReplyAttr) {
-        match try_or_log!(self.snapshot_from_sid(self.snapshots.sid_from_ino(ino))) {
-            Some(snapshot) => {
-                let ts = snapshot.time();
-                let attr = self.attr_snapshot(&snapshot, ino);
-                reply.attr(&ts, &attr);
-            }
-            None => {
-                error!("Cannot find snapshot for ino {}", ino);
-                reply.error(ENOSYS);
-            }
-        }
+        let snapshot = try_or_log!(self.snapshot_from_sid(self.snapshots.sid_from_ino(ino)));
+        let ts = snapshot.time();
+        let attr = self.attr_snapshot(&snapshot, ino);
+        reply.attr(&ts, &attr);
     }
 
     /// readdir for the root directory.
@@ -110,14 +103,7 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// readdir for snapshot contents.
     fn readdir_files(&mut self, ino: u64, offset: u64, mut reply: ReplyDirectory) {
-        let snapshot = match try_or_log!(self.snapshot_from_ino(ino)) {
-            Some(snapshot) => snapshot,
-            None => {
-                error!("No snapshot found");
-                reply.error(ENOENT);
-                return;
-            }
-        };
+        let snapshot = try_or_log!(self.snapshot_from_ino(ino));
         if offset == 0 {
             let tree = try_or_log!(SnapshotTree::new(&snapshot, self.last_ino));
             let entries = try_or_log!(snapshot.entries());
@@ -132,7 +118,10 @@ impl<B: Backend> RuplicityFs<B> {
                     EntryType::Fifo => FileType::NamedPipe,
                 };
                 let path = unwrap_opt_or_continue!(entry.path());
-                trace!("Add ino {} for path {:?} with ftype {:?}", entry.ino(), path, ftype);
+                trace!("Add ino {} for path {:?} with ftype {:?}",
+                       entry.ino(),
+                       path,
+                       ftype);
                 reply.add(entry.ino(), offset, ftype, path);
             }
         }
@@ -148,16 +137,10 @@ impl<B: Backend> RuplicityFs<B> {
                 return;
             }
         };
-        match try_or_log!(self.snapshot_from_sid(sid)) {
-            Some(snapshot) => {
-                let ts = snapshot.time();
-                let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
-                reply.entry(&ts, &attr, 0);
-            }
-            None => {
-                reply.error(ENOENT);
-            }
-        };
+        let snapshot = try_or_log!(self.snapshot_from_sid(sid));
+        let ts = snapshot.time();
+        let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
+        reply.entry(&ts, &attr, 0);
     }
 
     /// Returns attributes for a snapshot.
@@ -181,11 +164,14 @@ impl<B: Backend> RuplicityFs<B> {
         }
     }
 
-    fn snapshot_from_sid(&self, sid: usize) -> io::Result<Option<Snapshot>> {
-        self.backup.snapshots().map(|mut s| s.nth(sid))
+    fn snapshot_from_sid(&self, sid: usize) -> io::Result<Snapshot> {
+        match try!(self.backup.snapshots()).nth(sid) {
+            Some(s) => Ok(s),
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "Snapshot not found")),
+        }
     }
-    
-    fn snapshot_from_ino(&self, ino: u64) -> io::Result<Option<Snapshot>> {
+
+    fn snapshot_from_ino(&self, ino: u64) -> io::Result<Snapshot> {
         self.snapshot_from_sid(self.snapshots.sid_from_ino(ino))
     }
 }
