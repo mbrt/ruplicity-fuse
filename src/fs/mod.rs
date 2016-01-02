@@ -30,14 +30,7 @@ impl<B: Backend> RuplicityFs<B> {
     pub fn new(backup: Backup<B>) -> io::Result<Self> {
         let spaths = try!(SnapshotsInos::new(&backup));
         let last_ino = spaths.last_ino();
-        let trees = {
-            // vec![] macro does not work because SnapshotTree is not Clone
-            let mut v = Vec::new();
-            for _ in 0..spaths.len() {
-                v.push(None);
-            }
-            v
-        };
+        let trees = (0..spaths.len()).map(|_| None).collect();
 
         Ok(RuplicityFs {
             backup: backup,
