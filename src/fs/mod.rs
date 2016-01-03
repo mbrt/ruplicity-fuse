@@ -140,16 +140,49 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// lookup for snapshot entries.
     fn lookup_entry(&mut self, parent: u64, name: &Path, reply: ReplyEntry) {
-        let tree = unwrap_opt_or_error!(self.find_tree_with_ino(parent),
-                                        reply,
-                                        ENOENT,
-                                        "Can't find tree for ino {}",
-                                        parent);
+        let (tree, sid) = unwrap_opt_or_error!(self.find_tree_with_ino(parent),
+                                               reply,
+                                               ENOENT,
+                                               "Can't find tree for ino {}",
+                                               parent);
         let parent_entry = unwrap_opt_or_error!(tree.find_node(parent),
                                                 reply,
                                                 ENOENT,
                                                 "Can't find entry for ino {}",
                                                 parent);
+        let snapshot = try_or_log!(self.snapshot_from_sid(sid));
+        let entries = try_or_log!(snapshot.entries());
+        let entry = parent_entry.children(entries.as_signature()).find(|entry| {
+            match entry.path() {
+                Some(path) => path == name,
+                None => false,
+            }
+        });
+        let entry = unwrap_opt_or_error!(entry,
+                                         reply,
+                                         ENOENT,
+                                         "Can't find path '{:?}' in parent {}",
+                                         name,
+                                         parent);
+        let sig_entry = entry.as_signature();
+        let ts = sig_entry.mtime();
+        let attr = FileAttr {
+            ino: entry.ino(),
+            size: sig_entry.size_hint().map_or(0, |sh| sh.1 as u64),
+            blocks: 0,
+            atime: ts,
+            mtime: ts,
+            ctime: ts,
+            crtime: ts,
+            kind: from_entry_type(sig_entry.entry_type()),
+            perm: sig_entry.mode().map_or(0o777, |p| p as u16),
+            nlink: 0,
+            uid: sig_entry.userid().unwrap_or(100),
+            gid: sig_entry.groupid().unwrap_or(100),
+            rdev: 0,
+            flags: 0,
+        };
+        reply.entry(&ts, &attr, 0);
     }
 
     /// Returns attributes for a snapshot.
@@ -208,18 +241,24 @@ impl<B: Backend> RuplicityFs<B> {
         self.tree_for_snapshot(sid)
     }
 
-    fn find_tree_with_ino(&self, ino: u64) -> Option<&SnapshotTree> {
+    /// Returns the tree having that inode and the corresponding snapshot id.
+    fn find_tree_with_ino(&self, ino: u64) -> Option<(&SnapshotTree, usize)> {
         self.trees
             .iter()
+            .enumerate()
             .find(|opt_tree| {
-                opt_tree.as_ref().map_or(false, |tree| {
+                opt_tree.1.as_ref().map_or(false, |tree| {
                     match tree.inodes() {
                         Some((first, last)) => first <= ino && ino <= last,
                         None => false,
                     }
                 })
             })
-            .map(|opt_tree| opt_tree.as_ref().unwrap())
+            .map(|opt_tree| {
+                match opt_tree {
+                    (sid, tree) => (tree.as_ref().unwrap(), sid),
+                }
+            })
     }
 }
 

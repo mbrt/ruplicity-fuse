@@ -225,10 +225,6 @@ impl<'a, 'b> PathEntry<'a, 'b> {
 
 
 impl<'a> NodeEntry<'a> {
-    pub fn ino(&self) -> u64 {
-        self.node.ino
-    }
-
     pub fn children<'b>(&self, mut entries: SnapshotEntries<'b>) -> ChildrenIter<'a, 'b> {
         // skip the root
         entries.next().unwrap();
