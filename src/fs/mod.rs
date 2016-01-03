@@ -96,9 +96,9 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// readdir for snapshot contents.
     fn readdir_files(&mut self, ino: u64, offset: u64, mut reply: ReplyDirectory) {
-        let snapshot = try_or_log!(self.snapshot_from_ino(ino));
+        let sid = self.snapshots.sid_from_ino(ino);
+        let (tree, snapshot) = try_or_log!(self.tree_for_snapshot(sid));
         if offset == 0 {
-            let tree = try_or_log!(SnapshotTree::new(&snapshot, self.last_ino));
             let entries = try_or_log!(snapshot.entries());
             for (offset, entry) in tree.children(entries.as_signature()).enumerate() {
                 let offset = offset as u64;
@@ -164,8 +164,32 @@ impl<B: Backend> RuplicityFs<B> {
         }
     }
 
+    #[allow(dead_code)]
     fn snapshot_from_ino(&self, ino: u64) -> io::Result<Snapshot> {
         self.snapshot_from_sid(self.snapshots.sid_from_ino(ino))
+    }
+
+    fn tree_for_snapshot(&mut self, sid: usize) -> io::Result<(&SnapshotTree, Snapshot)> {
+        // check if already present
+        if self.trees[sid].is_some() {
+            return Ok((self.trees[sid].as_ref().unwrap(),
+                       try!(self.snapshot_from_sid(sid))));
+        }
+
+        // build the tree and recurse
+        {
+            let tree = {
+                let snapshot = try!(self.snapshot_from_sid(sid));
+                try!(SnapshotTree::new(&snapshot, self.last_ino + 1))
+            };
+            let opt_tree = &mut self.trees[sid];
+            // update the last ino
+            if let Some((_, last)) = tree.inodes() {
+                self.last_ino = last;
+            }
+            *opt_tree = Some(tree);
+        }
+        self.tree_for_snapshot(sid)
     }
 }
 
