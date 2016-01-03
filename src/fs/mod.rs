@@ -111,14 +111,7 @@ impl<B: Backend> RuplicityFs<B> {
                                    .enumerate()
                                    .skip(offset as usize - 1) {
             let offset = offset as u64 + 2;
-            let ftype = match entry.as_signature().entry_type() {
-                EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => {
-                    FileType::RegularFile
-                }
-                EntryType::Dir => FileType::Directory,
-                EntryType::SymLink => FileType::Symlink,
-                EntryType::Fifo => FileType::NamedPipe,
-            };
+            let ftype = from_entry_type(entry.as_signature().entry_type());
             let path = unwrap_opt_or_continue!(entry.path());
             trace!("Add ino {} for path {:?} with ftype {:?}",
                    entry.ino(),
@@ -145,6 +138,18 @@ impl<B: Backend> RuplicityFs<B> {
         let ts = snapshot.time();
         let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
         reply.entry(&ts, &attr, 0);
+    }
+
+    /// lookup for snapshot entries.
+    fn lookup_entry(&mut self, parent: u64, name: &Path, reply: ReplyEntry) {
+        let tree = match self.find_tree_with_ino(parent) {
+            Some(t) => t,
+            None => {
+                error!("Can't find tree for ino {}", parent);
+                reply.error(ENOENT);
+                return;
+            }
+        };
     }
 
     /// Returns attributes for a snapshot.
@@ -202,6 +207,20 @@ impl<B: Backend> RuplicityFs<B> {
         }
         self.tree_for_snapshot(sid)
     }
+
+    fn find_tree_with_ino(&self, ino: u64) -> Option<&SnapshotTree> {
+        self.trees
+            .iter()
+            .find(|opt_tree| {
+                opt_tree.as_ref().map_or(false, |tree| {
+                    match tree.inodes() {
+                        Some((first, last)) => first <= ino && ino <= last,
+                        None => false,
+                    }
+                })
+            })
+            .map(|opt_tree| opt_tree.as_ref().unwrap())
+    }
 }
 
 impl<B: Backend> Filesystem for RuplicityFs<B> {
@@ -230,7 +249,7 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         if parent == 1 {
             self.lookup_snapshot(name, reply);
         } else {
-            reply.error(ENOENT);
+            self.lookup_entry(parent, name, reply);
         }
     }
 }
@@ -283,4 +302,15 @@ impl SnapshotsInos {
 fn time_to_path(time: Timespec) -> String {
     let time = time::at(time);
     time::strftime("%Y-%m-%d_%H-%M-%S", &time).unwrap()
+}
+
+fn from_entry_type(et: EntryType) -> FileType {
+    // can't implement From nor Into traits, because neither EntryType nor FileType are from this
+    // crate
+    match et {
+        EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => FileType::RegularFile,
+        EntryType::Dir => FileType::Directory,
+        EntryType::SymLink => FileType::Symlink,
+        EntryType::Fifo => FileType::NamedPipe,
+    }
 }
