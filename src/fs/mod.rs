@@ -127,13 +127,11 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// lookup for snapshots.
     fn lookup_snapshot(&mut self, name: &Path, reply: ReplyEntry) {
-        let sid = match self.snapshots.sid_from_path(name) {
-            Some(id) => *id,
-            None => {
-                reply.error(ENOENT);
-                return;
-            }
-        };
+        let sid = unwrap_opt_or_error!(self.snapshots.sid_from_path(name),
+                                       reply,
+                                       ENOENT,
+                                       "Can't find snapshot for path {:?}",
+                                       name);
         let snapshot = try_or_log!(self.snapshot_from_sid(sid));
         let ts = snapshot.time();
         let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
@@ -142,14 +140,16 @@ impl<B: Backend> RuplicityFs<B> {
 
     /// lookup for snapshot entries.
     fn lookup_entry(&mut self, parent: u64, name: &Path, reply: ReplyEntry) {
-        let tree = match self.find_tree_with_ino(parent) {
-            Some(t) => t,
-            None => {
-                error!("Can't find tree for ino {}", parent);
-                reply.error(ENOENT);
-                return;
-            }
-        };
+        let tree = unwrap_opt_or_error!(self.find_tree_with_ino(parent),
+                                        reply,
+                                        ENOENT,
+                                        "Can't find tree for ino {}",
+                                        parent);
+        let parent_entry = unwrap_opt_or_error!(tree.find_node(parent),
+                                                reply,
+                                                ENOENT,
+                                                "Can't find entry for ino {}",
+                                                parent);
     }
 
     /// Returns attributes for a snapshot.
@@ -275,8 +275,8 @@ impl SnapshotsInos {
         self.paths.is_empty()
     }
 
-    pub fn sid_from_path(&self, name: &Path) -> Option<&usize> {
-        self.paths.get(name.to_str().unwrap())
+    pub fn sid_from_path(&self, name: &Path) -> Option<usize> {
+        self.paths.get(name.to_str().unwrap()).map(Clone::clone)
     }
 
     pub fn sid_from_ino(&self, ino: u64) -> usize {

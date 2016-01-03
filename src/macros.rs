@@ -22,3 +22,17 @@ macro_rules! unwrap_opt_or_continue(
         }
     )
 );
+
+
+macro_rules! unwrap_opt_or_error(
+    ($e:expr, $reply:expr, $err:expr, $($msg:tt)+) => (
+        match $e {
+            Some(e) => e,
+            None => {
+                error!($($msg)+);
+                $reply.error($err);
+                return;
+            }
+        }
+    )
+);

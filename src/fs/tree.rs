@@ -222,3 +222,21 @@ impl<'a, 'b> PathEntry<'a, 'b> {
         self.node.ino
     }
 }
+
+
+impl<'a> NodeEntry<'a> {
+    pub fn ino(&self) -> u64 {
+        self.node.ino
+    }
+
+    pub fn children<'b>(&self, mut entries: SnapshotEntries<'b>) -> ChildrenIter<'a, 'b> {
+        // skip the root
+        entries.next().unwrap();
+        ChildrenIter {
+            tree_it: self.node.children.iter(),
+            entry_it: entries,
+            curr_index: 0,
+            path_depth: self.depth,
+        }
+    }
+}
