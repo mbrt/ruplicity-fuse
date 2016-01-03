@@ -95,27 +95,38 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     /// readdir for snapshot contents.
-    fn readdir_files(&mut self, ino: u64, offset: u64, mut reply: ReplyDirectory) {
+    fn readdir_files(&mut self, ino: u64, mut offset: u64, mut reply: ReplyDirectory) {
+        // offset is the last returned offset
+        if offset == 0 {
+            // assume first two replies does fit in the buffer
+            reply.add(ino, 0, FileType::Directory, &Path::new("."));
+            reply.add(ino, 1, FileType::Directory, &Path::new(".."));
+            offset += 1;
+        }
+
         let sid = self.snapshots.sid_from_ino(ino);
         let (tree, snapshot) = try_or_log!(self.tree_for_snapshot(sid));
-        if offset == 0 {
-            let entries = try_or_log!(snapshot.entries());
-            for (offset, entry) in tree.children(entries.as_signature()).enumerate() {
-                let offset = offset as u64;
-                let ftype = match entry.as_signature().entry_type() {
-                    EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => {
-                        FileType::RegularFile
-                    }
-                    EntryType::Dir => FileType::Directory,
-                    EntryType::SymLink => FileType::Symlink,
-                    EntryType::Fifo => FileType::NamedPipe,
-                };
-                let path = unwrap_opt_or_continue!(entry.path());
-                trace!("Add ino {} for path {:?} with ftype {:?}",
-                       entry.ino(),
-                       path,
-                       ftype);
-                reply.add(entry.ino(), offset, ftype, path);
+        let entries = try_or_log!(snapshot.entries());
+        for (offset, entry) in tree.children(entries.as_signature())
+                                   .enumerate()
+                                   .skip(offset as usize - 1) {
+            let offset = offset as u64 + 2;
+            let ftype = match entry.as_signature().entry_type() {
+                EntryType::File | EntryType::HardLink | EntryType::Unknown(_) => {
+                    FileType::RegularFile
+                }
+                EntryType::Dir => FileType::Directory,
+                EntryType::SymLink => FileType::Symlink,
+                EntryType::Fifo => FileType::NamedPipe,
+            };
+            let path = unwrap_opt_or_continue!(entry.path());
+            trace!("Add ino {} for path {:?} with ftype {:?}",
+                   entry.ino(),
+                   path,
+                   ftype);
+            if reply.add(entry.ino(), offset, ftype, path) {
+                // the buffer is full, need to return
+                break;
             }
         }
         reply.ok();
