@@ -1,6 +1,7 @@
+use std::cmp::Ordering;
 use std::io;
 use std::iter::Peekable;
-use std::path::{Path, Component};
+use std::path::{Component, Path};
 use std::slice;
 
 use ruplicity::Snapshot;
@@ -9,8 +10,10 @@ use ruplicity::signatures::{Entry as SigEntry, SnapshotEntries};
 
 #[derive(Debug)]
 pub struct SnapshotTree {
-    /// paths in the root backup.
-    children: Vec<TreeNode>,
+    /// Paths in the root backup.
+    ///
+    /// The root node is not used; only its children are.
+    root: TreeNode,
 }
 
 pub struct ChildrenIter<'a, 'b> {
@@ -23,6 +26,11 @@ pub struct ChildrenIter<'a, 'b> {
 pub struct PathEntry<'a, 'b> {
     node: &'a TreeNode,
     entry: SigEntry<'b>,
+    depth: usize,
+}
+
+pub struct NodeEntry<'a> {
+    node: &'a TreeNode,
     depth: usize,
 }
 
@@ -44,15 +52,22 @@ impl SnapshotTree {
     pub fn new(snapshot: &Snapshot, first_ino: u64) -> io::Result<Self> {
         let entries = try!(snapshot.entries());
         let mut entries = entries.as_signature().peekable();
-        let children = match TreeNode::new(0, 0, first_ino, &mut entries) {
-            Some(node) => node.children,
-            None => Vec::new(),
+        let root = match TreeNode::new(0, 0, first_ino, &mut entries) {
+            Some(node) => node,
+            None => {
+                // create a dummy root with empty children
+                TreeNode {
+                    index: 0,
+                    ino: first_ino,
+                    children: Vec::new(),
+                }
+            }
         };
-        Ok(SnapshotTree { children: children })
+        Ok(SnapshotTree { root: root })
     }
 
     pub fn inodes(&self) -> Option<(u64, u64)> {
-        match (self.children.first(), self.children.last()) {
+        match (self.root.children.first(), self.root.children.last()) {
             (Some(first), Some(last)) => Some((first.inodes().0, last.inodes().1)),
             _ => None,
         }
@@ -62,11 +77,41 @@ impl SnapshotTree {
         // skip the root
         entries.next().unwrap();
         ChildrenIter {
-            tree_it: self.children.iter(),
+            tree_it: self.root.children.iter(),
             entry_it: entries,
             curr_index: 0,
             path_depth: 0,
         }
+    }
+
+    pub fn find_node(&self, ino: u64) -> Option<NodeEntry> {
+        fn find_node_rec(node: &TreeNode, ino: u64, depth: usize) -> Option<NodeEntry> {
+            // check if found
+            if node.ino == ino {
+                return Some(NodeEntry{ node: node, depth: depth });
+            }
+            // check if impossible to find
+            let (first, last) = node.inodes();
+            if ino < first || ino > last {
+                return None;
+            }
+            // find the children having that inode
+            let child_index = node.children.binary_search_by(|c| {
+                let (first, last) = c.inodes();
+                if ino < first {
+                    Ordering::Less
+                } else if ino > last {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                }
+            });
+            match child_index {
+                Ok(index) => find_node_rec(&node.children[index], ino, depth + 1),
+                Err(_) => None,
+            }
+        }
+        find_node_rec(&self.root, ino, 0)
     }
 }
 
