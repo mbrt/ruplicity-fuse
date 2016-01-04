@@ -95,12 +95,12 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     /// readdir for snapshot contents.
-    fn readdir_files(&mut self, ino: u64, mut offset: u64, mut reply: ReplyDirectory) {
+    fn readdir_snapshot(&mut self, ino: u64, mut offset: u64, mut reply: ReplyDirectory) {
         // offset is the last returned offset
         if offset == 0 {
             // assume first two replies does fit in the buffer
             reply.add(ino, 0, FileType::Directory, &Path::new("."));
-            reply.add(ino, 1, FileType::Directory, &Path::new(".."));
+            reply.add(1, 1, FileType::Directory, &Path::new(".."));
             offset += 1;
         }
 
@@ -110,6 +110,45 @@ impl<B: Backend> RuplicityFs<B> {
         for (offset, entry) in tree.children(entries.as_signature())
                                    .enumerate()
                                    .skip(offset as usize - 1) {
+            let offset = offset as u64 + 2;
+            let ftype = from_entry_type(entry.as_signature().entry_type());
+            let path = unwrap_opt_or_continue!(entry.path());
+            trace!("Add ino {} for path {:?} with ftype {:?}",
+                   entry.ino(),
+                   path,
+                   ftype);
+            if reply.add(entry.ino(), offset, ftype, path) {
+                // the buffer is full, need to return
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    /// readdir for an entry.
+    fn readdir_entry(&mut self, ino: u64, mut offset: u64, mut reply: ReplyDirectory) {
+        let (tree, sid) = unwrap_opt_or_error!(self.find_tree_with_ino(ino),
+                                               reply,
+                                               ENOENT,
+                                               "Can't find tree for ino {}",
+                                               ino);
+        let parent_entry = unwrap_opt_or_error!(tree.find_node(ino),
+                                                reply,
+                                                ENOENT,
+                                                "Can't find entry for ino {}",
+                                                ino);
+        // offset is the last returned offset
+        if offset == 0 {
+            // assume first two replies does fit in the buffer
+            reply.add(ino, 0, FileType::Directory, &Path::new("."));
+            reply.add(parent_entry.parent(), 1, FileType::Directory, &Path::new(".."));
+            offset += 1;
+        }
+        let snapshot = try_or_log!(self.snapshot_from_sid(sid));
+        let entries = try_or_log!(snapshot.entries());
+        for (offset, entry) in parent_entry.children(entries.as_signature())
+                                           .enumerate()
+                                           .skip(offset as usize - 1) {
             let offset = offset as u64 + 2;
             let ftype = from_entry_type(entry.as_signature().entry_type());
             let path = unwrap_opt_or_continue!(entry.path());
@@ -281,10 +320,9 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         if ino == 1 {
             self.readdir_root(offset, reply);
         } else if self.snapshots.is_snapshot(ino) {
-            self.readdir_files(ino, offset, reply);
+            self.readdir_snapshot(ino, offset, reply);
         } else {
-            error!("Unknown ino {} for readdir", ino);
-            reply.error(ENOENT);
+            self.readdir_entry(ino, offset, reply);
         }
     }
 

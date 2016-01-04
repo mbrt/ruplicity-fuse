@@ -33,6 +33,7 @@ pub struct PathEntry<'a, 'b> {
 pub struct NodeEntry<'a> {
     node: &'a TreeNode,
     depth: usize,
+    parent_ino: u64,
 }
 
 
@@ -93,12 +94,13 @@ impl SnapshotTree {
     }
 
     pub fn find_node(&self, ino: u64) -> Option<NodeEntry> {
-        fn find_node_rec(node: &TreeNode, ino: u64, depth: usize) -> Option<NodeEntry> {
+        fn find_node_rec(node: &TreeNode, ino: u64, depth: usize, parent: u64) -> Option<NodeEntry> {
             // check if found
             if node.ino == ino {
                 return Some(NodeEntry {
                     node: node,
                     depth: depth,
+                    parent_ino: parent,
                 });
             }
             // check if impossible to find
@@ -110,15 +112,15 @@ impl SnapshotTree {
             let child_index = node.children.binary_search_by(|c| {
                 let (first, last) = c.inodes();
                 if ino < first {
-                    Ordering::Less
-                } else if ino > last {
                     Ordering::Greater
+                } else if ino > last {
+                    Ordering::Less
                 } else {
                     Ordering::Equal
                 }
             });
             match child_index {
-                Ok(index) => find_node_rec(&node.children[index], ino, depth + 1),
+                Ok(index) => find_node_rec(&node.children[index], ino, depth + 1, node.ino),
                 Err(_) => None,
             }
         }
@@ -127,10 +129,11 @@ impl SnapshotTree {
             Some(NodeEntry {
                 node: &self.root,
                 depth: 0,
+                parent_ino: self.snapshot_ino,
             })
         } else {
             // otherwise search in children
-            find_node_rec(&self.root, ino, 0)
+            find_node_rec(&self.root, ino, 0, self.snapshot_ino)
         }
     }
 }
@@ -254,5 +257,9 @@ impl<'a> NodeEntry<'a> {
             curr_index: 0,
             path_depth: self.depth,
         }
+    }
+
+    pub fn parent(&self) -> u64 {
+        self.parent_ino
     }
 }
