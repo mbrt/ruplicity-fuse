@@ -14,6 +14,7 @@ pub struct SnapshotTree {
     ///
     /// The root node is not used; only its children are.
     root: TreeNode,
+    snapshot_ino: u64,
 }
 
 pub struct ChildrenIter<'a, 'b> {
@@ -49,10 +50,10 @@ struct TreeNode {
 
 
 impl SnapshotTree {
-    pub fn new(snapshot: &Snapshot, first_ino: u64) -> io::Result<Self> {
+    pub fn new(snapshot: &Snapshot, snapshot_ino: u64, first_ino: u64) -> io::Result<Self> {
         let entries = try!(snapshot.entries());
         let mut entries = entries.as_signature().peekable();
-        let root = match TreeNode::new(0, 0, first_ino, &mut entries) {
+        let root = match TreeNode::new(0, 0, first_ino - 1, &mut entries) {
             Some(node) => node,
             None => {
                 // create a dummy root with empty children
@@ -63,7 +64,14 @@ impl SnapshotTree {
                 }
             }
         };
-        Ok(SnapshotTree { root: root })
+        Ok(SnapshotTree {
+            root: root,
+            snapshot_ino: snapshot_ino,
+        })
+    }
+
+    pub fn snapshot_ino(&self) -> u64 {
+        self.snapshot_ino
     }
 
     pub fn inodes(&self) -> Option<(u64, u64)> {
@@ -88,7 +96,10 @@ impl SnapshotTree {
         fn find_node_rec(node: &TreeNode, ino: u64, depth: usize) -> Option<NodeEntry> {
             // check if found
             if node.ino == ino {
-                return Some(NodeEntry{ node: node, depth: depth });
+                return Some(NodeEntry {
+                    node: node,
+                    depth: depth,
+                });
             }
             // check if impossible to find
             let (first, last) = node.inodes();
@@ -111,7 +122,16 @@ impl SnapshotTree {
                 Err(_) => None,
             }
         }
-        find_node_rec(&self.root, ino, 0)
+        // check if the snapshot ino corresponds
+        if self.snapshot_ino == ino {
+            Some(NodeEntry {
+                node: &self.root,
+                depth: 0,
+            })
+        } else {
+            // otherwise search in children
+            find_node_rec(&self.root, ino, 0)
+        }
     }
 }
 

@@ -228,8 +228,9 @@ impl<B: Backend> RuplicityFs<B> {
         // build the tree and recurse
         {
             let tree = {
+                let ino = self.snapshots.ino_from_sid(sid);
                 let snapshot = try!(self.snapshot_from_sid(sid));
-                try!(SnapshotTree::new(&snapshot, self.last_ino + 1))
+                try!(SnapshotTree::new(&snapshot, ino, self.last_ino + 1))
             };
             let opt_tree = &mut self.trees[sid];
             // update the last ino
@@ -248,6 +249,9 @@ impl<B: Backend> RuplicityFs<B> {
             .enumerate()
             .find(|opt_tree| {
                 opt_tree.1.as_ref().map_or(false, |tree| {
+                    // test whether the given ino is the snapshot or it is present in the current
+                    // tree
+                    tree.snapshot_ino() == ino ||
                     match tree.inodes() {
                         Some((first, last)) => first <= ino && ino <= last,
                         None => false,
