@@ -76,7 +76,23 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     /// getattr for a backup entry.
-    fn getattr_entry(&mut self, ino: u64, reply: ReplyAttr) {}
+    fn getattr_entry(&mut self, ino: u64, reply: ReplyAttr) {
+        let (tree, sid) = unwrap_opt_or_error!(self.find_tree_with_ino(ino),
+                                               reply,
+                                               ENOENT,
+                                               "Can't find tree for ino {}",
+                                               ino);
+        let entry = unwrap_opt_or_error!(tree.find_node(ino),
+                                         reply,
+                                         ENOENT,
+                                         "Can't find entry for ino {}",
+                                         ino);
+        let snapshot = try_or_log!(self.snapshot_from_sid(sid));
+        let entries = try_or_log!(snapshot.entries());
+        let attr = self.attr_entry(entry.as_path_entry(entries.as_signature()).as_signature(),
+                                   ino);
+        reply.attr(&TTL, &attr);
+    }
 
     /// readdir for the root directory.
     fn readdir_root(&mut self, mut offset: u64, mut reply: ReplyDirectory) {

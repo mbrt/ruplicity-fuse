@@ -259,6 +259,14 @@ impl<'a> NodeEntry<'a> {
         }
     }
 
+    pub fn as_path_entry<'b>(&self, mut entries: SnapshotEntries<'b>) -> PathEntry<'a, 'b> {
+        PathEntry {
+            node: self.node,
+            entry: entries.nth(self.node.index).unwrap(),
+            depth: self.depth,
+        }
+    }
+
     pub fn parent(&self) -> u64 {
         self.parent_ino
     }
