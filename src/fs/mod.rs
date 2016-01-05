@@ -1,16 +1,22 @@
 mod tree;
 
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
-use libc::{ENOENT, ENOSYS};
+use libc::ENOENT;
 use time::{self, Timespec};
 use ruplicity::{Backend, Backup, Snapshot};
-use ruplicity::signatures::EntryType;
+use ruplicity::signatures::{Entry, EntryType};
 
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
 use self::tree::SnapshotTree;
+
+// 1 hour time-to-live
+const TTL: Timespec = Timespec {
+    sec: 60 * 60,
+    nsec: 0,
+};
 
 
 pub struct RuplicityFs<B> {
@@ -59,16 +65,18 @@ impl<B: Backend> RuplicityFs<B> {
             rdev: 0,
             flags: 0,
         };
-        reply.attr(&ts, &attr);
+        reply.attr(&TTL, &attr);
     }
 
     /// getattr for a snapshot directory.
     fn getattr_snapshot(&mut self, ino: u64, reply: ReplyAttr) {
         let snapshot = try_or_log!(self.snapshot_from_sid(self.snapshots.sid_from_ino(ino)));
-        let ts = snapshot.time();
         let attr = self.attr_snapshot(&snapshot, ino);
-        reply.attr(&ts, &attr);
+        reply.attr(&TTL, &attr);
     }
+
+    /// getattr for a backup entry.
+    fn getattr_entry(&mut self, ino: u64, reply: ReplyAttr) {}
 
     /// readdir for the root directory.
     fn readdir_root(&mut self, mut offset: u64, mut reply: ReplyDirectory) {
@@ -141,7 +149,10 @@ impl<B: Backend> RuplicityFs<B> {
         if offset == 0 {
             // assume first two replies does fit in the buffer
             reply.add(ino, 0, FileType::Directory, &Path::new("."));
-            reply.add(parent_entry.parent(), 1, FileType::Directory, &Path::new(".."));
+            reply.add(parent_entry.parent(),
+                      1,
+                      FileType::Directory,
+                      &Path::new(".."));
             offset += 1;
         }
         let snapshot = try_or_log!(self.snapshot_from_sid(sid));
@@ -172,9 +183,8 @@ impl<B: Backend> RuplicityFs<B> {
                                        "Can't find snapshot for path {:?}",
                                        name);
         let snapshot = try_or_log!(self.snapshot_from_sid(sid));
-        let ts = snapshot.time();
         let attr = self.attr_snapshot(&snapshot, self.snapshots.ino_from_sid(sid));
-        reply.entry(&ts, &attr, 0);
+        reply.entry(&TTL, &attr, 0);
     }
 
     /// lookup for snapshot entries.
@@ -203,25 +213,8 @@ impl<B: Backend> RuplicityFs<B> {
                                          "Can't find path '{:?}' in parent {}",
                                          name,
                                          parent);
-        let sig_entry = entry.as_signature();
-        let ts = sig_entry.mtime();
-        let attr = FileAttr {
-            ino: entry.ino(),
-            size: sig_entry.size_hint().map_or(0, |sh| sh.1 as u64),
-            blocks: 0,
-            atime: ts,
-            mtime: ts,
-            ctime: ts,
-            crtime: ts,
-            kind: from_entry_type(sig_entry.entry_type()),
-            perm: sig_entry.mode().map_or(0o777, |p| p as u16),
-            nlink: 0,
-            uid: sig_entry.userid().unwrap_or(100),
-            gid: sig_entry.groupid().unwrap_or(100),
-            rdev: 0,
-            flags: 0,
-        };
-        reply.entry(&ts, &attr, 0);
+        let attr = self.attr_entry(entry.as_signature(), entry.ino());
+        reply.entry(&TTL, &attr, 0);
     }
 
     /// Returns attributes for a snapshot.
@@ -240,6 +233,27 @@ impl<B: Backend> RuplicityFs<B> {
             nlink: 0,
             uid: 0,
             gid: 0,
+            rdev: 0,
+            flags: 0,
+        }
+    }
+
+    /// Returns attributes for an entry
+    fn attr_entry(&self, entry: &Entry, ino: u64) -> FileAttr {
+        let ts = entry.mtime();
+        FileAttr {
+            ino: ino,
+            size: entry.size_hint().map_or(0, |sh| sh.1 as u64),
+            blocks: 0,
+            atime: ts,
+            mtime: ts,
+            ctime: ts,
+            crtime: ts,
+            kind: from_entry_type(entry.entry_type()),
+            perm: entry.mode().map_or(0o777, |p| p as u16),
+            nlink: 0,
+            uid: entry.userid().unwrap_or(100),
+            gid: entry.groupid().unwrap_or(100),
             rdev: 0,
             flags: 0,
         }
@@ -312,7 +326,7 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         } else if self.snapshots.is_snapshot(ino) {
             self.getattr_snapshot(ino, reply);
         } else {
-            reply.error(ENOSYS);
+            self.getattr_entry(ino, reply);
         }
     }
 
