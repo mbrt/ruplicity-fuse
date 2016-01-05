@@ -13,6 +13,7 @@ extern crate time;
 mod macros;
 mod fs;
 mod logger;
+mod path_utils;
 
 use std::env;
 use std::io::{self, Write};
