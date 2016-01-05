@@ -1,10 +1,10 @@
 mod tree;
 
-use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
+use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyData, ReplyEntry, Request};
 use libc::ENOENT;
 use time::{self, Timespec};
 use ruplicity::{Backend, Backup, Snapshot};
-use ruplicity::signatures::{Entry, EntryType};
+use ruplicity::signatures::{Entry as SigEntry, EntryType};
 
 use std::collections::HashMap;
 use std::io;
@@ -233,6 +233,10 @@ impl<B: Backend> RuplicityFs<B> {
         reply.entry(&TTL, &attr, 0);
     }
 
+    /// readlink for entry
+    fn readlink_entry(&mut self, ino: u64, reply: ReplyData) {
+    }
+
     /// Returns attributes for a snapshot.
     fn attr_snapshot(&self, snapshot: &Snapshot, ino: u64) -> FileAttr {
         let ts = snapshot.time();
@@ -255,7 +259,7 @@ impl<B: Backend> RuplicityFs<B> {
     }
 
     /// Returns attributes for an entry
-    fn attr_entry(&self, entry: &Entry, ino: u64) -> FileAttr {
+    fn attr_entry(&self, entry: &SigEntry, ino: u64) -> FileAttr {
         let ts = entry.mtime();
         FileAttr {
             ino: ino,
@@ -362,6 +366,10 @@ impl<B: Backend> Filesystem for RuplicityFs<B> {
         } else {
             self.lookup_entry(parent, name, reply);
         }
+    }
+
+    fn readlink(&mut self, _req: &Request, ino: u64, reply: ReplyData) {
+        self.readlink_entry(ino, reply);
     }
 }
 
