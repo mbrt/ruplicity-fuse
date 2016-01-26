@@ -5,7 +5,7 @@ authors = ["mbrt"]
 description = "Mount duplicity backups with userspace filesystem"
 repository = "https://github.com/mbrt/ruplicity-fuse"
 readme = "README.md"
-license = "GPL v2"
+license = "GPL-2.0"
 keywords = ["duplicity", "backup", "fuse"]
 
 [features] 
