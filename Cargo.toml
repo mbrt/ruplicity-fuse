@@ -19,6 +19,6 @@ chan-signal = "0.1"
 fuse = "0.2"
 libc = "0.2"
 log = "0.3"
-ruplicity = { git = "https://github.com/mbrt/ruplicity" }
+ruplicity = "0.2.2"
 time = "0.1"
 clippy = { version = "*", optional = true }
